@@ -295,19 +295,23 @@ HeapObject Deserializer::PostProcessNewObject(HeapObject obj,
     if (!typed_array.is_on_heap()) {
       Smi store_index(
           reinterpret_cast<Address>(typed_array.external_pointer()));
-      byte* backing_store = off_heap_backing_stores_[store_index.value()] +
-                            typed_array.byte_offset();
-      typed_array.set_external_pointer(backing_store);
+      auto backing_store = backing_stores_[store_index.value()];
+      auto start = backing_store
+                       ? reinterpret_cast<byte*>(backing_store->buffer_start())
+                       : nullptr;
+      typed_array.set_external_pointer(start + typed_array.byte_offset());
     }
   } else if (obj.IsJSArrayBuffer()) {
     JSArrayBuffer buffer = JSArrayBuffer::cast(obj);
     // Only fixup for the off-heap case.
     if (buffer.backing_store() != nullptr) {
       Smi store_index(reinterpret_cast<Address>(buffer.backing_store()));
-      void* backing_store = off_heap_backing_stores_[store_index.value()];
-
-      buffer.set_backing_store(backing_store);
-      isolate_->heap()->RegisterNewArrayBuffer(buffer);
+      auto backing_store = backing_stores_[store_index.value()];
+      if (backing_store) {
+        buffer.Attach(backing_store);
+      } else {
+        buffer.SetupEmpty(SharedFlag::kNotShared);
+      }
     }
   } else if (obj.IsBytecodeArray()) {
     // TODO(mythria): Remove these once we store the default values for these
@@ -523,9 +527,10 @@ bool Deserializer::ReadData(TSlot current, TSlot limit,
   // Write barrier support costs around 1% in startup time.  In fact there
   // are no new space objects in current boot snapshots, so it's not needed,
   // but that may change.
-  bool write_barrier_needed = (current_object_address != kNullAddress &&
-                               source_space != SnapshotSpace::kNew &&
-                               source_space != SnapshotSpace::kCode);
+  bool write_barrier_needed =
+      (current_object_address != kNullAddress &&
+       source_space != SnapshotSpace::kNew &&
+       source_space != SnapshotSpace::kCode && !FLAG_disable_write_barriers);
   while (current < limit) {
     byte data = source_.Get();
     switch (data) {
@@ -669,12 +674,12 @@ bool Deserializer::ReadData(TSlot current, TSlot limit,
 
       case kOffHeapBackingStore: {
         int byte_length = source_.GetInt();
-        byte* backing_store = static_cast<byte*>(
-            isolate->array_buffer_allocator()->AllocateUninitialized(
-                byte_length));
+        std::unique_ptr<BackingStore> backing_store =
+            BackingStore::Allocate(isolate, byte_length, SharedFlag::kNotShared,
+                                   InitializedFlag::kUninitialized);
         CHECK_NOT_NULL(backing_store);
-        source_.CopyRaw(backing_store, byte_length);
-        off_heap_backing_stores_.push_back(backing_store);
+        source_.CopyRaw(backing_store->buffer_start(), byte_length);
+        backing_stores_.push_back(std::move(backing_store));
         break;
       }
 
@@ -842,6 +847,7 @@ TSlot Deserializer::ReadDataCase(Isolate* isolate, TSlot current,
   // Don't update current pointer here as it may be needed for write barrier.
   Write(current, heap_object_ref);
   if (emit_write_barrier && write_barrier_needed) {
+    DCHECK_IMPLIES(FLAG_disable_write_barriers, !write_barrier_needed);
     HeapObject host_object = HeapObject::FromAddress(current_object_address);
     SLOW_DCHECK(isolate->heap()->Contains(host_object));
     GenerationalBarrier(host_object, MaybeObjectSlot(current.address()),

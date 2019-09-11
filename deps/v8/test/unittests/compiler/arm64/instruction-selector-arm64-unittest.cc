@@ -41,16 +41,15 @@ std::ostream& operator<<(std::ostream& os, const Shift& shift) {
 
 // Helper to build Int32Constant or Int64Constant depending on the given
 // machine type.
-Node* BuildConstant(
-    InstructionSelectorTest::StreamBuilder& m,  // NOLINT(runtime/references)
-    MachineType type, int64_t value) {
+Node* BuildConstant(InstructionSelectorTest::StreamBuilder* m, MachineType type,
+                    int64_t value) {
   switch (type.representation()) {
     case MachineRepresentation::kWord32:
-      return m.Int32Constant(static_cast<int32_t>(value));
+      return m->Int32Constant(static_cast<int32_t>(value));
       break;
 
     case MachineRepresentation::kWord64:
-      return m.Int64Constant(value);
+      return m->Int64Constant(value);
       break;
 
     default:
@@ -464,9 +463,8 @@ TEST_P(InstructionSelectorLogicalTest, ShiftByImmediate) {
     TRACED_FORRANGE(int, imm, 0, ((type == MachineType::Int32()) ? 31 : 63)) {
       StreamBuilder m(this, type, type, type);
       m.Return((m.*dpi.constructor)(
-          m.Parameter(0),
-          (m.*shift.mi.constructor)(m.Parameter(1),
-                                    BuildConstant(m, type, imm))));
+          m.Parameter(0), (m.*shift.mi.constructor)(
+                              m.Parameter(1), BuildConstant(&m, type, imm))));
       Stream s = m.Build();
       ASSERT_EQ(1U, s.size());
       EXPECT_EQ(dpi.arch_opcode, s[0]->arch_opcode());
@@ -480,7 +478,7 @@ TEST_P(InstructionSelectorLogicalTest, ShiftByImmediate) {
       StreamBuilder m(this, type, type, type);
       m.Return((m.*dpi.constructor)(
           (m.*shift.mi.constructor)(m.Parameter(1),
-                                    BuildConstant(m, type, imm)),
+                                    BuildConstant(&m, type, imm)),
           m.Parameter(0)));
       Stream s = m.Build();
       ASSERT_EQ(1U, s.size());
@@ -521,7 +519,7 @@ TEST_P(InstructionSelectorAddSubTest, ImmediateOnRight) {
   TRACED_FOREACH(int32_t, imm, kAddSubImmediates) {
     StreamBuilder m(this, type, type);
     m.Return(
-        (m.*dpi.mi.constructor)(m.Parameter(0), BuildConstant(m, type, imm)));
+        (m.*dpi.mi.constructor)(m.Parameter(0), BuildConstant(&m, type, imm)));
     Stream s = m.Build();
     ASSERT_EQ(1U, s.size());
     EXPECT_EQ(dpi.mi.arch_opcode, s[0]->arch_opcode());
@@ -540,7 +538,7 @@ TEST_P(InstructionSelectorAddSubTest, NegImmediateOnRight) {
     if (imm == 0) continue;
     StreamBuilder m(this, type, type);
     m.Return(
-        (m.*dpi.mi.constructor)(m.Parameter(0), BuildConstant(m, type, -imm)));
+        (m.*dpi.mi.constructor)(m.Parameter(0), BuildConstant(&m, type, -imm)));
     Stream s = m.Build();
     ASSERT_EQ(1U, s.size());
     EXPECT_EQ(dpi.negate_arch_opcode, s[0]->arch_opcode());
@@ -568,9 +566,8 @@ TEST_P(InstructionSelectorAddSubTest, ShiftByImmediateOnRight) {
     TRACED_FORRANGE(int, imm, 0, ((type == MachineType::Int32()) ? 31 : 63)) {
       StreamBuilder m(this, type, type, type);
       m.Return((m.*dpi.mi.constructor)(
-          m.Parameter(0),
-          (m.*shift.mi.constructor)(m.Parameter(1),
-                                    BuildConstant(m, type, imm))));
+          m.Parameter(0), (m.*shift.mi.constructor)(
+                              m.Parameter(1), BuildConstant(&m, type, imm))));
       Stream s = m.Build();
       ASSERT_EQ(1U, s.size());
       EXPECT_EQ(dpi.mi.arch_opcode, s[0]->arch_opcode());
@@ -2035,7 +2032,7 @@ TEST_P(InstructionSelectorIntDPWithIntMulTest, NegativeMul) {
   {
     StreamBuilder m(this, type, type, type);
     Node* n =
-        (m.*mdpi.sub_constructor)(BuildConstant(m, type, 0), m.Parameter(0));
+        (m.*mdpi.sub_constructor)(BuildConstant(&m, type, 0), m.Parameter(0));
     m.Return((m.*mdpi.mul_constructor)(n, m.Parameter(1)));
     Stream s = m.Build();
     ASSERT_EQ(1U, s.size());
@@ -2046,7 +2043,7 @@ TEST_P(InstructionSelectorIntDPWithIntMulTest, NegativeMul) {
   {
     StreamBuilder m(this, type, type, type);
     Node* n =
-        (m.*mdpi.sub_constructor)(BuildConstant(m, type, 0), m.Parameter(1));
+        (m.*mdpi.sub_constructor)(BuildConstant(&m, type, 0), m.Parameter(1));
     m.Return((m.*mdpi.mul_constructor)(m.Parameter(0), n));
     Stream s = m.Build();
     ASSERT_EQ(1U, s.size());
@@ -2938,7 +2935,8 @@ TEST_P(InstructionSelectorComparisonTest, WithImmediate) {
     // Compare with 0 are turned into tst instruction.
     if (imm == 0) continue;
     StreamBuilder m(this, type, type);
-    m.Return((m.*cmp.constructor)(m.Parameter(0), BuildConstant(m, type, imm)));
+    m.Return(
+        (m.*cmp.constructor)(m.Parameter(0), BuildConstant(&m, type, imm)));
     Stream s = m.Build();
     ASSERT_EQ(1U, s.size());
     EXPECT_EQ(cmp.arch_opcode, s[0]->arch_opcode());
@@ -2953,7 +2951,8 @@ TEST_P(InstructionSelectorComparisonTest, WithImmediate) {
     // Compare with 0 are turned into tst instruction.
     if (imm == 0) continue;
     StreamBuilder m(this, type, type);
-    m.Return((m.*cmp.constructor)(BuildConstant(m, type, imm), m.Parameter(0)));
+    m.Return(
+        (m.*cmp.constructor)(BuildConstant(&m, type, imm), m.Parameter(0)));
     Stream s = m.Build();
     ASSERT_EQ(1U, s.size());
     EXPECT_EQ(cmp.arch_opcode, s[0]->arch_opcode());
@@ -4571,54 +4570,6 @@ TEST_F(InstructionSelectorTest, CompareFloat64HighGreaterThanOrEqualZero64) {
   EXPECT_EQ(63, s.ToInt32(s[1]->InputAt(1)));
 }
 
-TEST_F(InstructionSelectorTest, StackCheck0) {
-  StreamBuilder m(this, MachineType::Int32(), MachineType::Pointer());
-  Node* const sp = m.LoadStackPointer();
-  Node* const stack_limit = m.Load(MachineType::Int64(), m.Parameter(0));
-  Node* const interrupt = m.UintPtrLessThan(sp, stack_limit);
-
-  RawMachineLabel if_true, if_false;
-  m.Branch(interrupt, &if_true, &if_false);
-
-  m.Bind(&if_true);
-  m.Return(m.Int32Constant(1));
-
-  m.Bind(&if_false);
-  m.Return(m.Int32Constant(0));
-
-  Stream s = m.Build();
-
-  ASSERT_EQ(2U, s.size());
-  EXPECT_EQ(kArm64Ldr, s[0]->arch_opcode());
-  EXPECT_EQ(kArm64Cmp, s[1]->arch_opcode());
-  EXPECT_EQ(4U, s[1]->InputCount());
-  EXPECT_EQ(0U, s[1]->OutputCount());
-}
-
-TEST_F(InstructionSelectorTest, StackCheck1) {
-  StreamBuilder m(this, MachineType::Int32(), MachineType::Pointer());
-  Node* const sp = m.LoadStackPointer();
-  Node* const stack_limit = m.Load(MachineType::Int64(), m.Parameter(0));
-  Node* const sp_within_limit = m.UintPtrLessThan(stack_limit, sp);
-
-  RawMachineLabel if_true, if_false;
-  m.Branch(sp_within_limit, &if_true, &if_false);
-
-  m.Bind(&if_true);
-  m.Return(m.Int32Constant(1));
-
-  m.Bind(&if_false);
-  m.Return(m.Int32Constant(0));
-
-  Stream s = m.Build();
-
-  ASSERT_EQ(2U, s.size());
-  EXPECT_EQ(kArm64Ldr, s[0]->arch_opcode());
-  EXPECT_EQ(kArm64Cmp, s[1]->arch_opcode());
-  EXPECT_EQ(4U, s[1]->InputCount());
-  EXPECT_EQ(0U, s[1]->OutputCount());
-}
-
 TEST_F(InstructionSelectorTest, ExternalReferenceLoad1) {
   // Test offsets we can use kMode_Root for.
   const int64_t kOffsets[] = {0, 1, 4, INT32_MIN, INT32_MAX};
@@ -4663,18 +4614,18 @@ namespace {
 // Then checks that the correct number of kArm64Poke and kArm64PokePair were
 // generated.
 void TestPokePair(
-    InstructionSelectorTest::StreamBuilder& m,  // NOLINT(runtime/references)
+    InstructionSelectorTest::StreamBuilder* m,  // NOLINT(runtime/references)
     Zone* zone,
-    MachineSignature::Builder& builder,  // NOLINT(runtime/references)
+    MachineSignature::Builder* builder,  // NOLINT(runtime/references)
     Node* nodes[], int num_nodes, int expected_poke_pair, int expected_poke) {
   auto call_descriptor =
       InstructionSelectorTest::StreamBuilder::MakeSimpleCallDescriptor(
-          zone, builder.Build());
+          zone, builder->Build());
 
-  m.CallN(call_descriptor, num_nodes, nodes);
-  m.Return(m.UndefinedConstant());
+  m->CallN(call_descriptor, num_nodes, nodes);
+  m->Return(m->UndefinedConstant());
 
-  auto s = m.Build();
+  auto s = m->Build();
   int num_poke_pair = 0;
   int num_poke = 0;
   for (size_t i = 0; i < s.size(); ++i) {
@@ -4712,7 +4663,7 @@ TEST_F(InstructionSelectorTest, PokePairPrepareArgumentsInt32) {
     // EmitPrepareArguments.
     const int expected_poke = 1 + 1;
 
-    TestPokePair(m, zone(), builder, nodes, arraysize(nodes),
+    TestPokePair(&m, zone(), &builder, nodes, arraysize(nodes),
                  expected_poke_pair, expected_poke);
   }
 
@@ -4732,7 +4683,7 @@ TEST_F(InstructionSelectorTest, PokePairPrepareArgumentsInt32) {
     const int expected_poke_pair = 2;
     const int expected_poke = 0;
 
-    TestPokePair(m, zone(), builder, nodes, arraysize(nodes),
+    TestPokePair(&m, zone(), &builder, nodes, arraysize(nodes),
                  expected_poke_pair, expected_poke);
   }
 }
@@ -4753,8 +4704,8 @@ TEST_F(InstructionSelectorTest, PokePairPrepareArgumentsInt64) {
   const int expected_poke_pair = 2;
   const int expected_poke = 0;
 
-  TestPokePair(m, zone(), builder, nodes, arraysize(nodes), expected_poke_pair,
-               expected_poke);
+  TestPokePair(&m, zone(), &builder, nodes, arraysize(nodes),
+               expected_poke_pair, expected_poke);
 }
 
 TEST_F(InstructionSelectorTest, PokePairPrepareArgumentsFloat32) {
@@ -4773,8 +4724,8 @@ TEST_F(InstructionSelectorTest, PokePairPrepareArgumentsFloat32) {
   const int expected_poke_pair = 2;
   const int expected_poke = 0;
 
-  TestPokePair(m, zone(), builder, nodes, arraysize(nodes), expected_poke_pair,
-               expected_poke);
+  TestPokePair(&m, zone(), &builder, nodes, arraysize(nodes),
+               expected_poke_pair, expected_poke);
 }
 
 TEST_F(InstructionSelectorTest, PokePairPrepareArgumentsFloat64) {
@@ -4793,8 +4744,8 @@ TEST_F(InstructionSelectorTest, PokePairPrepareArgumentsFloat64) {
   const int expected_poke_pair = 2;
   const int expected_poke = 0;
 
-  TestPokePair(m, zone(), builder, nodes, arraysize(nodes), expected_poke_pair,
-               expected_poke);
+  TestPokePair(&m, zone(), &builder, nodes, arraysize(nodes),
+               expected_poke_pair, expected_poke);
 }
 
 TEST_F(InstructionSelectorTest, PokePairPrepareArgumentsIntFloatMixed) {
@@ -4814,7 +4765,7 @@ TEST_F(InstructionSelectorTest, PokePairPrepareArgumentsIntFloatMixed) {
     const int expected_poke_pair = 0;
     const int expected_poke = 4;
 
-    TestPokePair(m, zone(), builder, nodes, arraysize(nodes),
+    TestPokePair(&m, zone(), &builder, nodes, arraysize(nodes),
                  expected_poke_pair, expected_poke);
   }
 
@@ -4840,7 +4791,7 @@ TEST_F(InstructionSelectorTest, PokePairPrepareArgumentsIntFloatMixed) {
     // EmitPrepareArguments.
     const int expected_poke = 3 + 1;
 
-    TestPokePair(m, zone(), builder, nodes, arraysize(nodes),
+    TestPokePair(&m, zone(), &builder, nodes, arraysize(nodes),
                  expected_poke_pair, expected_poke);
   }
 }
@@ -4859,8 +4810,8 @@ TEST_F(InstructionSelectorTest, PokePairPrepareArgumentsSimd128) {
   const int expected_poke = 2;
 
   // Using kArm64PokePair is not currently supported for Simd128.
-  TestPokePair(m, zone(), builder, nodes, arraysize(nodes), expected_poke_pair,
-               expected_poke);
+  TestPokePair(&m, zone(), &builder, nodes, arraysize(nodes),
+               expected_poke_pair, expected_poke);
 }
 
 }  // namespace compiler

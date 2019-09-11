@@ -56,8 +56,8 @@ enum class ParseResultHolderBase::TypeId {
   kImplicitParameters,
   kOptionalImplicitParameters,
   kNameAndExpression,
-  kConditionalAnnotation,
-  kOptionalConditionalAnnotation,
+  kAnnotation,
+  kVectorOfAnnotation,
   kClassFieldExpression,
   kStructFieldExpression,
   kStdVectorOfNameAndTypeExpression,
@@ -248,7 +248,7 @@ class Symbol {
   size_t rule_number() const { return rules_.size(); }
 
   void AddRule(const Rule& rule) {
-    rules_.push_back(base::make_unique<Rule>(rule));
+    rules_.push_back(std::make_unique<Rule>(rule));
     rules_.back()->SetLeftHandSide(this);
   }
 

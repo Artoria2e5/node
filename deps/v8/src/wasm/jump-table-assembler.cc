@@ -22,7 +22,9 @@ void JumpTableAssembler::EmitLazyCompileJumpSlot(uint32_t func_index,
 }
 
 void JumpTableAssembler::EmitRuntimeStubSlot(Address builtin_target) {
-  JumpToInstructionStream(builtin_target);
+  movq_imm64(kScratchRegister, builtin_target);  // 10 bytes
+  jmp(kScratchRegister);                         // 3 bytes
+  STATIC_ASSERT(kJumpTableStubSlotSize == 13);
 }
 
 void JumpTableAssembler::EmitJumpSlot(Address target) {
@@ -47,7 +49,7 @@ void JumpTableAssembler::EmitLazyCompileJumpSlot(uint32_t func_index,
 }
 
 void JumpTableAssembler::EmitRuntimeStubSlot(Address builtin_target) {
-  JumpToInstructionStream(builtin_target);
+  jmp(builtin_target, RelocInfo::NONE);
 }
 
 void JumpTableAssembler::EmitJumpSlot(Address target) {
@@ -75,8 +77,12 @@ void JumpTableAssembler::EmitLazyCompileJumpSlot(uint32_t func_index,
 }
 
 void JumpTableAssembler::EmitRuntimeStubSlot(Address builtin_target) {
-  JumpToInstructionStream(builtin_target);
-  CheckConstPool(true, false);  // force emit of const pool
+  // Load from [pc + kInstrSize] to pc. Note that {pc} points two instructions
+  // after the currently executing one.
+  ldr_pcrel(pc, -kInstrSize);  // 1 instruction
+  dd(builtin_target);          // 4 bytes (== 1 instruction)
+  STATIC_ASSERT(kInstrSize == kInt32Size);
+  STATIC_ASSERT(kJumpTableStubSlotSize == 2 * kInstrSize);
 }
 
 void JumpTableAssembler::EmitJumpSlot(Address target) {
@@ -106,8 +112,19 @@ void JumpTableAssembler::EmitLazyCompileJumpSlot(uint32_t func_index,
 }
 
 void JumpTableAssembler::EmitRuntimeStubSlot(Address builtin_target) {
-  JumpToInstructionStream(builtin_target);
-  ForceConstantPoolEmissionWithoutJump();
+  // This code uses hard-coded registers and instructions (and avoids
+  // {UseScratchRegisterScope} or {InstructionAccurateScope}) because this code
+  // will only be called for the very specific runtime slot table, and we want
+  // to have maximum control over the generated code.
+  // Do not reuse this code without validating that the same assumptions hold.
+  constexpr Register kTmpReg = x16;
+  DCHECK(TmpList()->IncludesAliasOf(kTmpReg));
+  // Load from [pc + 2 * kInstrSize] to {kTmpReg}, then branch there.
+  ldr_pcrel(kTmpReg, 2);  // 1 instruction
+  br(kTmpReg);            // 1 instruction
+  dq(builtin_target);     // 8 bytes (== 2 instructions)
+  STATIC_ASSERT(kInstrSize == kInt32Size);
+  STATIC_ASSERT(kJumpTableStubSlotSize == 4 * kInstrSize);
 }
 
 void JumpTableAssembler::EmitJumpSlot(Address target) {
